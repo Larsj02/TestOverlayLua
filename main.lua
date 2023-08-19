@@ -1,3 +1,4 @@
+---@diagnostic disable: deprecated
 local specToClass = {
     [250] = "DEATH_KNIGHT", -- Blood
     [251] = "DEATH_KNIGHT", -- Frost
@@ -81,6 +82,19 @@ local classColors = {
     ["WARRIOR"] = "#C69B6D",
 }
 
+local advancedEvents = {
+    ["DAMAGE_SPLIT"] = 13,
+    ["SPELL_CAST_SUCCESS"] = 13,
+    ["SPELL_DAMAGE"] = 13,
+    ["SPELL_ENERGIZE"] = 13,
+    ["SPELL_HEAL"] = 13,
+    ["SPELL_PERIODIC_DAMAGE"] = 13,
+    ["SPELL_PERIODIC_ENERGIZE"] = 13,
+    ["SPELL_PERIODIC_HEAL"] = 13,
+    ["SWING_DAMAGE"] = 10,
+    ["SWING_DAMAGE_LANDED"] = 10,
+}
+
 DataProcess = {
     fileDir = "C:\\Program Files (x86)\\World of Warcraft\\_retail_\\Logs",
     logFile = nil,
@@ -154,13 +168,24 @@ function DataProcess:ProcessCombatant(combatantLine)
     local parsedPlayerData = parseNestedData(combatantLine)
     self.groupData[parsedPlayerData[2]] = {
         rawData = parsedPlayerData,
-        color = classColors[specToClass[tonumber(parsedPlayerData[25])]]
+        color = classColors[specToClass[tonumber(parsedPlayerData[25])]],
+        name = "",
+        coloredName = ""
     }
 end
-
-function DataProcess:Cleu(line)
+local testEvents = {}
+function DataProcess:Cleu(date, timestamp, subEvent, ...)
+    local _, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags = ...
+    if self.groupData[sourceGUID] then
+        local normalizedName = sourceName:match("[^-]+")
+        self.groupData[sourceGUID].name = normalizedName
+        self.groupData[sourceGUID].coloredName = self:ColorString(normalizedName, self.groupData[sourceGUID].color)
+    end
+    if advancedEvents[subEvent] then
+        local infoGUID, ownerGUID, currentHP, maxHP, attackPower, spellPower, armor, absorb, powerType, currentPower, maxPower, powerCost, positionX, positionY, uiMapID, facing, level = select(advancedEvents[subEvent], ...)
+        print(self.groupData[infoGUID] and self.groupData[infoGUID].coloredName or "NPCHalt", ownerGUID, currentHP/maxHP*100 .. "HP", positionX, positionY, uiMapID, facing, level)
+    end
 end
-
 
 function DataProcess:ReadFile()
     local file = io.open(string.format("%s\\%s",self.fileDir, self.logFile), "r")
@@ -173,7 +198,32 @@ function DataProcess:ReadFile()
 
             local newContent = file:read("*a")
             for line in newContent:gmatch("[^\r\n]+") do
-                self:Cleu(line)
+                local cleu = {}
+                local event = {}
+                local skippedString
+                -- skippedString shit is cause "Djaruun, Pillar of the Elder Flame" splits into 2 values and fucks the Advanced Logging
+                for item in line:gmatch("[^,]+") do
+                    local _, count = item:gsub('"', "")
+                    if count == 1 and skippedString then
+                        item = item .. ", " .. skippedString
+                        skippedString = nil
+                        item = item:gsub('"', "")
+                        table.insert(cleu, item)
+                    elseif count == 1 then
+                        skippedString = item
+                    else
+                        item = item:gsub('"', "")
+                        table.insert(cleu, item)
+                    end
+                end
+                for item in cleu[1]:gmatch("[^%s]+") do table.insert(event, item) end
+                local date, timestamp, subEvent = unpack(event)
+
+                if subEvent == "COMBATANT_INFO" then
+                    self:ProcessCombatant(line)
+                else
+                    self:Cleu(date, timestamp, subEvent, unpack(cleu))
+                end
             end
         end
         file:close()
@@ -183,9 +233,17 @@ function DataProcess:ReadFile()
 end
 
 local cL = DataProcess:New()
+cL:ChangeDir("C:\\Users\\lmjoh\\Desktop\\TestOverlayLua")
+cL.lastFileSize = 1
 cL:ReadFile()
-local eventData = "8/9 22:30:08.346  COMBATANT_INFO,Player-3674-0B2AE8A0,1,921,1419,27722,13224,0,0,0,1186,1186,1186,0,325,6406,6406,6406,0,1593,4940,4940,4940,2410,63,[(62091,80147,1),(62092,80148,1),(62094,80150,1),(62098,80155,1),(62099,80156,2),(62102,80159,1),(62104,80161,1),(62105,80163,1),(62107,80165,2),(62112,80170,2),(62113,80171,1),(62114,80173,2),(62115,80174,1),(62118,80177,1),(62120,80179,1),(62122,80181,1),(62123,80182,2),(62124,80183,1),(62127,80187,1),(62190,80256,2),(62192,80258,1),(62195,80261,1),(62196,80262,1),(62198,80265,1),(62201,80269,1),(62202,80270,2),(62203,80271,1),(62205,80273,1),(62207,80275,1),(62208,80276,1),(62209,80277,1),(62210,80278,1),(62212,80280,1),(62213,80281,1),(62214,80282,1),(62215,80283,1),(62216,80284,1),(62217,80285,1),(62218,80286,1),(62219,80287,1),(62220,80288,1),(93524,115877,1),(62119,80178,1),(62083,80139,1),(62095,80152,1),(62096,80153,2),(62101,80158,2),(62126,80186,1),(62188,80254,1),(62194,80260,1),(62197,80264,1),(62206,80274,1),(62211,80279,1)],(0,0,0,203284),[(193523,447,(),(8836,8840,8902),()),(201759,447,(),(8836,8840,8902,9477,8782),(192985,415,192948,415,192948,415)),(202549,450,(),(6652,9227,9410,9383,1507,8767),()),(98087,1,(),(),()),(202554,447,(6625,0,0),(6652,9231,9382,1498,8767),()),(193516,447,(6904,0,5953),(8836,8840,8902),(192948,415)),(202550,447,(6541,0,0),(6652,9228,9410,9382,1504,8767),()),(193519,447,(6613,0,0),(8836,8840,8902),()),(193510,447,(6580,0,0),(8836,8840,8902),(192948,415)),(202552,447,(),(6652,9230,9382,1498,8767),()),(192999,447,(6562,0,0),(8836,8840,8902,8780),(192948,415)),(193000,447,(6562,0,0),(8836,8840,8902,8780),(192948,415)),(203729,447,(),(9410,6652,9382,1501,8767),()),(202615,447,(),(9410,6652,9382,1504,8767),()),(204465,441,(6598,0,0),(6652,7979,9334,1482,8767),()),(190511,447,(6643,6518,0),(8836,8840,8902),()),(194879,447,(),(8836,8840,8902),()),(103636,33,(),(),())],[Player-3674-0B2AE8A0,371172,Player-3674-0B2AE8A0,416715,Player-3674-0B2AE8A0,383886,Player-3674-0B2AE8A0,384033,Player-3674-0B2AE8A0,383810,Player-3674-0B2AE8A0,416714,Player-3674-0B239E37,389684,Player-3674-0B239E37,389685,Player-3674-0B2AE8A0,411537,Player-3674-0B18B930,1126,Player-3391-0C514EB7,6673,Player-3674-0B2352D4,381750,Player-3674-0B0F78EE,41635,Player-3674-0B245903,21562,Player-3674-0B2AE8A0,396092,Player-3674-0B2579E2,1459],99,0,0,0"
-cL:ProcessCombatant(eventData)
 for _, playerTbl in pairs(cL.groupData) do
-    print(cL:ColorString("testText", playerTbl.color))
+    print(cL:ColorString(playerTbl.name, playerTbl.color))
+end
+
+for k,v in pairs(testEvents) do
+    local full = ""
+    for _, j in pairs(v) do
+        full = full .. j .. ","
+    end
+    --print(k..","..full)
 end
