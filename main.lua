@@ -100,7 +100,8 @@ DataProcess = {
     logFile = nil,
     lastFileSize = 0,
     activeAuras = {},
-    groupData = {}
+    groupData = {},
+    encounterData = {current = {}, last = {}}
 }
 
 function DataProcess:New(obj)
@@ -119,6 +120,16 @@ function DataProcess:ColorString(text, hexColor)
     local resetCode = "\27[0m"
     return escapeCode .. text .. resetCode
 end
+
+function DataProcess:FormatMilliseconds(milliseconds)
+    local totalSeconds = math.floor(milliseconds / 1000)
+    local minutes = math.floor(totalSeconds / 60)
+    local seconds = totalSeconds % 60
+    local millisecondsPart = milliseconds % 1000
+
+    return string.format("%02d:%02d.%03d", minutes, seconds, millisecondsPart)
+end
+
 
 function DataProcess:RefreshFilePath()
     local lfs = require "lfs"
@@ -175,7 +186,7 @@ function DataProcess:ProcessCombatant(combatantLine)
 end
 local testEvents = {}
 function DataProcess:Cleu(date, timestamp, subEvent, ...)
-    local _, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags = ...
+    local _, sourceGUID, sourceName = ...
     if self.groupData[sourceGUID] then
         local normalizedName = sourceName:match("[^-]+")
         self.groupData[sourceGUID].name = normalizedName
@@ -183,7 +194,36 @@ function DataProcess:Cleu(date, timestamp, subEvent, ...)
     end
     if advancedEvents[subEvent] then
         local infoGUID, ownerGUID, currentHP, maxHP, attackPower, spellPower, armor, absorb, powerType, currentPower, maxPower, powerCost, positionX, positionY, uiMapID, facing, level = select(advancedEvents[subEvent], ...)
-        print(self.groupData[infoGUID] and self.groupData[infoGUID].coloredName or "NPCHalt", ownerGUID, currentHP/maxHP*100 .. "HP", positionX, positionY, uiMapID, facing, level)
+        if self.groupData[infoGUID] then
+            self.groupData[infoGUID].position = {
+                map = uiMapID,
+                posX = positionX,
+                posY = positionY,
+                face = facing
+            }
+        end
+    end
+
+    if subEvent == "ENCOUNTER_START" then
+        local _, encounterId, encounterName, difficultyId, groupSize, instanceId = ...
+        self.encounterData.current = {
+            id = encounterId,
+            name = encounterName,
+            difficulty = difficultyId,
+            groupSize = groupSize,
+            instance = instanceId
+        }
+    elseif subEvent == "ENCOUNTER_END" then
+        local success, fightTime = select(6, ...)
+        local lastEncounter = self.encounterData.current or {}
+        lastEncounter.success = success == "1" and true or false
+        lastEncounter.duration = fightTime
+        lastEncounter.durationString = self:FormatMilliseconds(fightTime)
+        self.encounterData.last = lastEncounter
+        self.encounterData.current = {}
+    end
+    for k, v in pairs(self.encounterData.last) do
+        print(k,v)
     end
 end
 
@@ -224,7 +264,7 @@ function DataProcess:ReadFile()
                 else
                     self:Cleu(date, timestamp, subEvent, unpack(cleu))
                 end
-            end
+            end 
         end
         file:close()
     else
